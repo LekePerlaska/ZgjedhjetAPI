@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using ZgjedhjetApi.Data;
 using ZgjedhjetApi.Enums;
 using ZgjedhjetApi.Models.DTOs;
@@ -129,7 +130,47 @@ namespace ZgjedhjetApi.Controllers
         )
         {
             // YOUR CODE HERE
-            var response = new ZgjedhjetAggregatedResponse();
+            var query = _dbcontext.Zgjedhjet.AsQueryable();
+
+            if (kategoria.HasValue)
+                query = query.Where(x => x.Kategoria == kategoria.Value);
+
+            if (komuna.HasValue)
+                query = query.Where(x => x.Komuna == komuna.Value);
+
+            if (!string.IsNullOrWhiteSpace(qendra_e_votimit))
+                query = query.Where(x => x.Qendra_e_votimit == qendra_e_votimit);
+
+            if (!string.IsNullOrWhiteSpace(vendvotimi))
+                query = query.Where(x => x.Vendvotimi == vendvotimi);
+
+            if (
+                !string.IsNullOrWhiteSpace(qendra_e_votimit)
+                || !string.IsNullOrWhiteSpace(vendvotimi)
+            )
+            {
+                var exists = await query.AnyAsync();
+
+                if (!exists)
+                    return NotFound("Qendra_e_Votimit or VendVotimi not found.");
+            }
+
+            var data = await query.ToListAsync();
+
+            var results = new List<PartiaVotesResponse>();
+
+            foreach (Partia p in Enum.GetValues(typeof(Partia)))
+            {
+                if (partia.HasValue && p != partia.Value)
+                    continue;
+
+                var totalVotes = data.Sum(x => x.Partia.GetVotes(p));
+
+                results.Add(
+                    new PartiaVotesResponse { Partia = p.ToString(), TotalVota = totalVotes }
+                );
+            }
+            var response = new ZgjedhjetAggregatedResponse { Results = results };
             return Ok(response);
         }
     }
