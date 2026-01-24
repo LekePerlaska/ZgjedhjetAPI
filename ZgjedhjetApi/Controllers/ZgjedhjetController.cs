@@ -1,8 +1,8 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using ZgjedhjetApi.Data;
 using ZgjedhjetApi.Enums;
 using ZgjedhjetApi.Models.DTOs;
 using ZgjedhjetApi.Models.Entities;
-using ZgjedhjetApi.Data;
 
 namespace ZgjedhjetApi.Controllers
 {
@@ -56,8 +56,6 @@ namespace ZgjedhjetApi.Controllers
                         continue;
 
                     var values = line.Split(',');
-                    if(values[2] == "" || values[3] == "")
-                      return BadRequest("404 - Not Found");
 
                     var entity = new Zgjedhjet
                     {
@@ -94,8 +92,8 @@ namespace ZgjedhjetApi.Controllers
                             Partia135 = int.Parse(values[28]),
                             Partia136 = int.Parse(values[29]),
                             Partia137 = int.Parse(values[30]),
-                            Partia138 = int.Parse(values[31])
-                        }
+                            Partia138 = int.Parse(values[31]),
+                        },
                     };
 
                     entities.Add(entity);
@@ -127,7 +125,8 @@ namespace ZgjedhjetApi.Controllers
             [FromQuery] Komuna? komuna = null,
             [FromQuery] string? qendra_e_votimit = null,
             [FromQuery] string? vendvotimi = null,
-            [FromQuery] Partia? partia = null)
+            [FromQuery] Partia? partia = null
+        )
         {
             // YOUR CODE HERE
             var response = new ZgjedhjetAggregatedResponse();
