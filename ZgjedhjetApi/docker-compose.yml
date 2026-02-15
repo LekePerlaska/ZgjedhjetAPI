@@ -5,14 +5,38 @@ services:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: mssql_dev
     environment:
-      SA_PASSWORD: "YourStrong!Passw0rd"   # <-- change this!
+      SA_PASSWORD: "YourStrong!Passw0rd" # <-- change this!
       ACCEPT_EULA: "Y"
     ports:
-      - "1433:1433"                          # Exposes SQL Server on localhost:1433
+      - "1433:1433" # Exposes SQL Server on localhost:1433
     volumes:
-      - mssql_data:/var/opt/mssql            # Persists database files
+      - mssql_data:/var/opt/mssql # Persists database files
     restart: unless-stopped
+
+  redis:
+    image: redis:7
+    container_name: redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.1
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    restart: unless-stopped
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
 
 volumes:
   mssql_data:
-
+  redis_data:
+  es_data:

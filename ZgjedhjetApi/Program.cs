@@ -1,5 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using Nest;
+using StackExchange.Redis;
 using ZgjedhjetApi.Data;
+using ZgjedhjetApi.Models.Entities;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,6 +24,21 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddDbContext<LifeDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("LifeDatabase"))
 );
+
+builder.Services.AddSingleton<IConnectionMultiplexer>(
+    ConnectionMultiplexer.Connect(builder.Configuration.GetConnectionString("Redis"))
+);
+builder.Services.AddSingleton<IElasticClient>(sp =>
+{
+    var uri = builder.Configuration["Elasticsearch:Uri"];
+    var defaultIndex = builder.Configuration["Elasticsearch:DefaultIndex"];
+
+    var settings = new ConnectionSettings(new Uri(uri))
+        .DefaultIndex(defaultIndex)
+        .DefaultMappingFor<Zgjedhjet>(m => m.IndexName("zghedjet").IdProperty(p => p.Id));
+
+    return new ElasticClient(settings);
+});
 
 var app = builder.Build();
 
