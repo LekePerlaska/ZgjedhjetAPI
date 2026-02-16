@@ -5,7 +5,6 @@ using StackExchange.Redis;
 using ZgjedhjetApi.Data;
 using ZgjedhjetApi.Enums;
 using ZgjedhjetApi.Models.DTOs;
-using ZgjedhjetApi.Models.Entities;
 
 namespace ZgjedhjetApi.Controllers
 {
@@ -55,15 +54,14 @@ namespace ZgjedhjetApi.Controllers
                     continue;
 
                 var batchToIndex = batch
-                    .Select(x => new
+                    .Select(x => new ZgjedhjetElasticDto
                     {
-                        x.Id,
-                        Partia = x.Partia.ToString(),
+                        Id = x.Id,
+                        Partia = x.Partia,
                         Kategoria = x.Kategoria.ToString(),
-                        Komuna = x.Komuna,
-                        KomunaStr = x.Komuna.ToString(),
-                        x.Qendra_e_votimit,
-                        x.Vendvotimi,
+                        Komuna = x.Komuna.ToString(),
+                        Qendra_e_votimit = x.Qendra_e_votimit,
+                        Vendvotimi = x.Vendvotimi,
                     })
                     .ToList();
 
@@ -105,13 +103,18 @@ namespace ZgjedhjetApi.Controllers
             [FromQuery] Partia? partia = null
         )
         {
-            var mustQueries = new List<Func<QueryContainerDescriptor<Zgjedhjet>, QueryContainer>>();
+            var mustQueries =
+                new List<Func<QueryContainerDescriptor<ZgjedhjetElasticDto>, QueryContainer>>();
 
             if (kategoria.HasValue)
-                mustQueries.Add(q => q.Term(t => t.Field(f => f.Kategoria).Value(kategoria.Value)));
+                mustQueries.Add(q =>
+                    q.Term(t => t.Field(f => f.Kategoria).Value(kategoria.Value.ToString()))
+                );
 
             if (komuna.HasValue)
-                mustQueries.Add(q => q.Term(t => t.Field(f => f.Komuna).Value(komuna.Value)));
+                mustQueries.Add(q =>
+                    q.Term(t => t.Field(f => f.Komuna).Value(komuna.Value.ToString()))
+                );
 
             if (!string.IsNullOrWhiteSpace(qendra_e_votimit))
                 mustQueries.Add(q =>
@@ -121,7 +124,7 @@ namespace ZgjedhjetApi.Controllers
             if (!string.IsNullOrWhiteSpace(vendvotimi))
                 mustQueries.Add(q => q.Term(t => t.Field(f => f.Vendvotimi).Value(vendvotimi)));
 
-            var searchResponse = await _elastic.SearchAsync<Zgjedhjet>(s =>
+            var searchResponse = await _elastic.SearchAsync<ZgjedhjetElasticDto>(s =>
                 s.Index("zgjedhjet").Size(10000).Query(q => q.Bool(b => b.Must(mustQueries)))
             );
 
@@ -172,10 +175,10 @@ namespace ZgjedhjetApi.Controllers
 
                         return q.Bool(b =>
                             b.Should(
-                                    sh => sh.Prefix(p => p.Field(f => f.KomunaStr).Value(search)),
+                                    sh => sh.Prefix(p => p.Field(f => f.Komuna).Value(search)),
                                     sh =>
                                         sh.Wildcard(w =>
-                                            w.Field(f => f.KomunaStr).Value($"*{search}*")
+                                            w.Field(f => f.Komuna).Value($"*{search}*")
                                         )
                                 )
                                 .MinimumShouldMatch(1)
@@ -185,7 +188,7 @@ namespace ZgjedhjetApi.Controllers
                         a.Terms(
                             "komuna_suggestions",
                             t =>
-                                t.Field(f => f.KomunaStr.Suffix("keyword"))
+                                t.Field(f => f.Komuna.Suffix("keyword"))
                                     .Size(20)
                                     .Order(o => o.Ascending("_key"))
                         )
@@ -200,6 +203,11 @@ namespace ZgjedhjetApi.Controllers
                 .Buckets.Select(b => b.Key)
                 .ToList();
 
+            foreach (var komuna in suggestions)
+            {
+                await _db.HashIncrementAsync("komuna:suggestion:count", komuna, 1);
+            }
+
             return Ok(suggestions);
         }
 
@@ -209,13 +217,14 @@ namespace ZgjedhjetApi.Controllers
             var entries = await _db.HashGetAllAsync("komuna:suggestion:count");
 
             var results = entries
-                .Select(e => new { Komuna = e.Name.ToString(), nrISugjerimeve = (int)e.Value })
+                .Select(e => new
+                {
+                    Komuna = e.Name.ToString(),
+                    nrISugjerimeve = int.TryParse(e.Value, out var count) ? count : 0,
+                })
                 .OrderByDescending(x => x.nrISugjerimeve);
 
-            var finalRes =
-                (top.HasValue && top.Value > 0)
-                    ? results.Take(top.Value).ToList()
-                    : results.ToList();
+            var finalRes = top > 0 ? results.Take(top.Value).ToList() : results.ToList();
 
             return Ok(finalRes);
         }
