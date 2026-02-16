@@ -54,9 +54,22 @@ namespace ZgjedhjetApi.Controllers
                 if (!batch.Any())
                     continue;
 
+                var batchToIndex = batch
+                    .Select(x => new
+                    {
+                        x.Id,
+                        Partia = x.Partia.ToString(),
+                        Kategoria = x.Kategoria.ToString(),
+                        Komuna = x.Komuna,
+                        KomunaStr = x.Komuna.ToString(),
+                        x.Qendra_e_votimit,
+                        x.Vendvotimi,
+                    })
+                    .ToList();
+
                 var response = await _elastic.BulkAsync(b =>
                     b.IndexMany(
-                            batch,
+                            batchToIndex,
                             (descriptor, doc) =>
                             {
                                 if (doc.Id == 0) // or null if nullable
@@ -147,46 +160,32 @@ namespace ZgjedhjetApi.Controllers
         }
 
         [HttpGet("elastic/komuna-suggestions")]
-        public async Task<IActionResult> GetKomunaSuggestions(
-            [FromQuery] string? search,
-            [FromQuery] Kategoria? kategoria = null
-        )
+        public async Task<IActionResult> GetKomunaSuggestions([FromQuery] string? search)
         {
             var response = await _elastic.SearchAsync<ZgjedhjetElasticDto>(s =>
                 s.Index("zgjedhjet")
                     .Size(0)
                     .Query(q =>
                     {
-                        QueryContainer query = null;
+                        if (string.IsNullOrWhiteSpace(search))
+                            return null;
 
-                        if (!string.IsNullOrWhiteSpace(search))
-                        {
-                            query &= q.Bool(b =>
-                                b.Should(
-                                        sh => sh.Prefix(p => p.Field(f => f.Komuna).Value(search)),
-                                        sh =>
-                                            sh.Wildcard(w =>
-                                                w.Field(f => f.Komuna).Value($"*{search}*")
-                                            )
-                                    )
-                                    .MinimumShouldMatch(1)
-                            );
-                        }
-
-                        if (kategoria.HasValue && kategoria != Kategoria.TeGjitha)
-                        {
-                            query &= q.Term(t =>
-                                t.Field(f => f.Kategoria).Value(kategoria.Value.ToString())
-                            );
-                        }
-
-                        return query;
+                        return q.Bool(b =>
+                            b.Should(
+                                    sh => sh.Prefix(p => p.Field(f => f.KomunaStr).Value(search)),
+                                    sh =>
+                                        sh.Wildcard(w =>
+                                            w.Field(f => f.KomunaStr).Value($"*{search}*")
+                                        )
+                                )
+                                .MinimumShouldMatch(1)
+                        );
                     })
                     .Aggregations(a =>
                         a.Terms(
                             "komuna_suggestions",
                             t =>
-                                t.Field(f => f.Komuna.Suffix("keyword"))
+                                t.Field(f => f.KomunaStr.Suffix("keyword"))
                                     .Size(20)
                                     .Order(o => o.Ascending("_key"))
                         )
