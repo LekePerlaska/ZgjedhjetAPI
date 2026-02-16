@@ -41,6 +41,8 @@ namespace ZgjedhjetApi.Controllers
 
             var totalCount = await _dbcontext.Zgjedhjet.CountAsync();
 
+            _logger.LogInformation("Starting migration of {TotalCount} records", totalCount);
+
             for (int i = 0; i < totalCount; i += batchSize)
             {
                 var batch = await _dbcontext
@@ -49,9 +51,11 @@ namespace ZgjedhjetApi.Controllers
                     .Take(batchSize)
                     .ToListAsync();
 
+                if (!batch.Any())
+                    continue;
+
                 var response = await _elastic.BulkAsync(b =>
-                    b.Index("zgjedhjet")
-                        .IndexMany(
+                    b.IndexMany(
                             batch,
                             (descriptor, doc) =>
                             {
@@ -65,12 +69,13 @@ namespace ZgjedhjetApi.Controllers
                         .Refresh(Elasticsearch.Net.Refresh.WaitFor)
                 );
 
-                if (response.ItemsWithErrors.Any())
+                if (response.Errors)
                 {
                     foreach (var item in response.ItemsWithErrors)
-                        Console.WriteLine($"Failed document {item.Id}: {item.Error.Reason}");
+                        _logger.LogError($"Failed document {item.Id}: {item.Error.Reason}");
                 }
                 totalMigrated += batch.Count;
+                _logger.LogInformation("Migrated {Count} / {Total}", totalMigrated, totalCount);
             }
 
             return Ok(
@@ -104,7 +109,7 @@ namespace ZgjedhjetApi.Controllers
                 mustQueries.Add(q => q.Term(t => t.Field(f => f.Vendvotimi).Value(vendvotimi)));
 
             var searchResponse = await _elastic.SearchAsync<Zgjedhjet>(s =>
-                s.Index("zgjedhjet-index").Size(10000).Query(q => q.Bool(b => b.Must(mustQueries)))
+                s.Index("zgjedhjet").Size(10000).Query(q => q.Bool(b => b.Must(mustQueries)))
             );
 
             if (!searchResponse.IsValid)
@@ -147,8 +152,8 @@ namespace ZgjedhjetApi.Controllers
             [FromQuery] Kategoria? kategoria = null
         )
         {
-            var response = await _elastic.SearchAsync<Zgjedhjet>(s =>
-                s.Index("zgjedhjet-index")
+            var response = await _elastic.SearchAsync<ZgjedhjetElasticDto>(s =>
+                s.Index("zgjedhjet")
                     .Size(0)
                     .Query(q =>
                     {
@@ -158,15 +163,10 @@ namespace ZgjedhjetApi.Controllers
                         {
                             query &= q.Bool(b =>
                                 b.Should(
+                                        sh => sh.Prefix(p => p.Field(f => f.Komuna).Value(search)),
                                         sh =>
-                                            sh.MatchPhrasePrefix(m =>
-                                                m.Field(f => f.Komuna).Query(search)
-                                            ),
-                                        sh =>
-                                            sh.Match(m =>
-                                                m.Field(f => f.Komuna)
-                                                    .Query(search)
-                                                    .Fuzziness(Fuzziness.Auto)
+                                            sh.Wildcard(w =>
+                                                w.Field(f => f.Komuna).Value($"*{search}*")
                                             )
                                     )
                                     .MinimumShouldMatch(1)
@@ -175,7 +175,9 @@ namespace ZgjedhjetApi.Controllers
 
                         if (kategoria.HasValue && kategoria != Kategoria.TeGjitha)
                         {
-                            query &= q.Term(t => t.Field(f => f.Kategoria).Value(kategoria.Value));
+                            query &= q.Term(t =>
+                                t.Field(f => f.Kategoria).Value(kategoria.Value.ToString())
+                            );
                         }
 
                         return query;
@@ -183,7 +185,10 @@ namespace ZgjedhjetApi.Controllers
                     .Aggregations(a =>
                         a.Terms(
                             "komuna_suggestions",
-                            t => t.Field("komuna.keyword").Size(20).Order(o => o.Ascending("_key"))
+                            t =>
+                                t.Field(f => f.Komuna.Suffix("keyword"))
+                                    .Size(20)
+                                    .Order(o => o.Ascending("_key"))
                         )
                     )
             );

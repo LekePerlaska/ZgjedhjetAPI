@@ -35,7 +35,8 @@ builder.Services.AddSingleton<IElasticClient>(sp =>
 
     var settings = new ConnectionSettings(new Uri(uri))
         .DefaultIndex(defaultIndex)
-        .DefaultMappingFor<Zgjedhjet>(m => m.IndexName("zghedjet").IdProperty(p => p.Id));
+        .DefaultMappingFor<Zgjedhjet>(m => m.IdProperty(p => p.Id))
+        .DisableDirectStreaming();
 
     return new ElasticClient(settings);
 });
